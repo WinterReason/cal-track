@@ -13,8 +13,8 @@ const PORT = process.env.PORT || 3000;
 // --- 3. (สำคัญ) ตั้งค่า CORS ก่อน Endpoint ทั้งหมด ---
 // อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
 const corsOptions = {
-  // ใส่ URL ของเว็บ Vercel ของคุณตรงๆ ที่นี่
-  origin: 'cal-track-2d8ygfqbo-winterreasons-projects.vercel.app' // <-- ✨ ตรวจสอบ URL นี้ให้ถูกต้องเป๊ะๆ
+  // ใส่แค่ Production URL ที่ไม่เคยเปลี่ยนของคุณที่นี่
+  origin: 'https://cal-track.vercel.app' // <-- ใส่ลิงก์หลักของคุณแค่ลิงก์เดียว
 };
 app.use(cors(corsOptions));
 
