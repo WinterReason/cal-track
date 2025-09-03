@@ -4,25 +4,37 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const axios = require('axios');
-const FormData = require('form-data'); // Library ที่ช่วยส่งรูปภาพไปยัง Imagga
+const FormData = require('form-data');
 
 // --- 2. ตั้งค่า Express Server ---
 const app = express();
-const PORT = 3000;
-app.use(cors());
+const PORT = process.env.PORT || 3000;
 
-// --- 3. ตั้งค่า Multer สำหรับรับไฟล์ ---
+// --- 3. (สำคัญ) ตั้งค่า CORS ก่อน Endpoint ทั้งหมด ---
+// อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
+const corsOptions = {
+  // ใส่ URL ของเว็บ Vercel ของคุณตรงๆ ที่นี่
+  origin: 'https://cal-track-clyv4ct0v-winterreasons-projects.vercel.app' // <-- ✨ ตรวจสอบ URL นี้ให้ถูกต้องเป๊ะๆ
+};
+app.use(cors(corsOptions));
+
+// --- 4. ตั้งค่า Multer สำหรับรับไฟล์ ---
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// --- 4. ดึง API Keys จากไฟล์ .env ---
+// --- 5. ดึง API Keys จากไฟล์ .env ---
 const IMAGGA_API_KEY = process.env.IMAGGA_API_KEY;
 const IMAGGA_API_SECRET = process.env.IMAGGA_API_SECRET;
 const USDA_API_KEY = process.env.USDA_API_KEY;
 
-// --- 5. สร้าง Endpoint หลักสำหรับวิเคราะห์รูปภาพ ---
+// --- 6. สร้าง Endpoint สำหรับหน้าแรก (Optional) ---
+app.get('/', (req, res) => {
+    res.send('<h1>Cal Track Backend is running!</h1><p>This server is waiting for image analysis requests from the frontend.</p>');
+});
+
+// --- 7. สร้าง Endpoint หลักสำหรับวิเคราะห์รูปภาพ ---
 app.post('/analyze', upload.single('foodImage'), async (req, res) => {
     console.log("ได้รับคำขอวิเคราะห์รูปภาพ (ใช้ Imagga & USDA)...");
 
@@ -56,7 +68,6 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
             return res.status(400).json({ success: false, message: "ไม่พบข้อมูลอาหารในรูปภาพนี้" });
         }
         
-        // ใช้ Tag ที่มีความมั่นใจสูงสุดเป็นชื่ออาหาร
         const foodName = tags[0].tag.en;
         console.log(`Imagga ตรวจพบ: ${foodName}`);
 
@@ -65,7 +76,7 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
             params: {
                 query: foodName,
                 api_key: USDA_API_KEY,
-                pageSize: 1 // เอาผลลัพธ์ที่ตรงที่สุดอันเดียว
+                pageSize: 1
             }
         });
 
@@ -77,7 +88,6 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
         const foodDetails = usdaSearchResponse.data.foods[0];
         const nutrients = foodDetails.foodNutrients;
 
-        // ฟังก์ชันช่วยหาค่าโภชนาการจาก Array ของ USDA
         const getNutrientValue = (nutrientName, unit) => {
             const nutrient = nutrients.find(n => n.nutrientName.toLowerCase().includes(nutrientName.toLowerCase()));
             return nutrient ? `${nutrient.value.toFixed(1)} ${unit}` : `0 ${unit}`;
@@ -86,7 +96,7 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
         // --- ส่วนที่ 3: รวบรวมข้อมูลและส่งกลับ ---
         const finalResult = {
             success: true,
-            name: foodDetails.description, // ใช้ชื่อจากฐานข้อมูล USDA เพื่อความแม่นยำ
+            name: foodDetails.description,
             calories: getNutrientValue('Energy', 'kcal'),
             protein: getNutrientValue('Protein', 'g'),
             carbs: getNutrientValue('Carbohydrate, by difference', 'g'),
@@ -105,26 +115,8 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
     }
 });
 
-// เพิ่มโค้ดส่วนนี้เข้าไปใน server.js
-app.get('/', (req, res) => {
-    res.send('<h1>Cal Track Backend is running!</h1><p>This server is waiting for image analysis requests from the frontend.</p>');
-});
-
-// --- 6. สร้าง Endpoint หลักสำหรับวิเคราะห์รูปภาพ ---
-app.post('/analyze', upload.single('foodImage'), async (req, res) => {
-    // ... โค้ดวิเคราะห์รูปภาพของคุณ ...
-});
-
-// --- 4. เปิดใช้งาน CORS (Cross-Origin Resource Sharing) ---
-// อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
-const corsOptions = {
-  // ใส่ URL ของเว็บ Vercel ของคุณตรงๆ ที่นี่
-  origin: 'https://cal-track-lehduke-winterreasons-projects.vercel.app' // <-- ✨ สำคัญมาก: ใส่ URL ของ Vercel ของคุณให้ถูกต้องเป๊ะๆ
-};
-app.use(cors(corsOptions));
-
-// --- 6. สั่งให้เซิร์ฟเวอร์เริ่มทำงาน ---
+// --- 8. สั่งให้เซิร์ฟเวอร์เริ่มทำงาน ---
 app.listen(PORT, () => {
-    console.log(`✅ Backend Server พร้อมทำงานที่ http://localhost:${PORT}`);
+    console.log(`✅ Backend Server พร้อมทำงานที่ Port: ${PORT}`);
     console.log("ใช้ API ฟรีจาก Imagga และ USDA");
 });
