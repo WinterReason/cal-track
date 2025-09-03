@@ -118,7 +118,8 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
 // --- 4. เปิดใช้งาน CORS (Cross-Origin Resource Sharing) ---
 // อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
 const corsOptions = {
-  origin: 'https://cal-track-lehduke-winterreasons-projects.vercel.app' // <-- ✨ สำคัญ: ใส่ URL ของ Vercel ของคุณที่นี่
+  // ใส่ URL ของเว็บ Vercel ของคุณตรงๆ ที่นี่
+  origin: 'https://cal-track-lehduke-winterreasons-projects.vercel.app' // <-- ✨ สำคัญมาก: ใส่ URL ของ Vercel ของคุณให้ถูกต้องเป๊ะๆ
 };
 app.use(cors(corsOptions));
 
