@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 // อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
 const corsOptions = {
   // ใส่ URL ของเว็บ Vercel ของคุณตรงๆ ที่นี่
-  origin: 'https://cal-track-clyv4ct0v-winterreasons-projects.vercel.app' // <-- ✨ ตรวจสอบ URL นี้ให้ถูกต้องเป๊ะๆ
+  origin: 'cal-track-2d8ygfqbo-winterreasons-projects.vercel.app' // <-- ✨ ตรวจสอบ URL นี้ให้ถูกต้องเป๊ะๆ
 };
 app.use(cors(corsOptions));
 
