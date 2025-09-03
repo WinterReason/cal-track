@@ -105,6 +105,16 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
     }
 });
 
+// เพิ่มโค้ดส่วนนี้เข้าไปใน server.js
+app.get('/', (req, res) => {
+    res.send('<h1>Cal Track Backend is running!</h1><p>This server is waiting for image analysis requests from the frontend.</p>');
+});
+
+// --- 6. สร้าง Endpoint หลักสำหรับวิเคราะห์รูปภาพ ---
+app.post('/analyze', upload.single('foodImage'), async (req, res) => {
+    // ... โค้ดวิเคราะห์รูปภาพของคุณ ...
+});
+
 // --- 6. สั่งให้เซิร์ฟเวอร์เริ่มทำงาน ---
 app.listen(PORT, () => {
     console.log(`✅ Backend Server พร้อมทำงานที่ http://localhost:${PORT}`);
