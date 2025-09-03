@@ -1,332 +1,219 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cal Track</title>
-    <style>
-        /* (CSS ทั้งหมดจากเวอร์ชัน Definitive Edition) */
-        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;700&display=swap');
-        :root {
-            --primary-color: #3B82F6; --background-color: #0F172A; --panel-color: #1E293B;
-            --border-color: #334155; --text-color: #E2E8F0; --text-color-muted: #94A3B8;
-            --font-family: 'Sarabun', sans-serif; --success-color: #2ECC71; --warning-color: #F59E0B; --danger-color: #EF4444;
-            --button-hover-bg: #2563EB;
+<script>
+    // --- DOM Elements ---
+    const allModeButtons = document.querySelectorAll('.mode-button');
+    const scannerView = document.getElementById('scannerView');
+    const cameraStream = document.getElementById('cameraStream');
+    const pastedImage = document.getElementById('pastedImage');
+    const capturedImage = document.getElementById('capturedImage');
+    const placeholderText = document.getElementById('placeholderText');
+    const placeholderIcon = document.getElementById('placeholderIcon');
+    const dragDropText = document.getElementById('dragDropText');
+    const pasteError = document.getElementById('pasteError');
+    const uploadFileInput = document.getElementById('uploadFileInput');
+    const uploadButton = document.getElementById('uploadButton');
+    const analyzeButton = document.getElementById('analyzeButton');
+    const resultPlaceholder = document.getElementById('resultPlaceholder');
+    const analysisLoader = document.getElementById('analysisLoader');
+    const resultData = document.getElementById('resultData');
+    const progressBar = document.getElementById('progressBar');
+    const loaderStatusText = document.getElementById('loaderStatusText');
+    const detailsButton = document.getElementById('detailsButton');
+    const scanAgainButton = document.getElementById('scanAgainButton');
+    const detailsModal = document.getElementById('detailsModal');
+    const closeModalButton = document.getElementById('closeModalButton');
+    const dropArea = document.getElementById('dropArea');
+    
+    let currentImageFile = null;
+    let activeStream = null;
+    let currentMode = '';
+
+    // --- CORE FUNCTIONS ---
+    function setInputMode(mode) {
+        if (currentMode === mode) return;
+        currentMode = mode;
+        resetInputState();
+        const activeBtn = document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
+        activeBtn.classList.add('active');
+        switch (mode) {
+            case 'capture':
+                placeholderText.innerText = 'กำลังเปิดกล้อง...';
+                placeholderIcon.innerText = '📸';
+                dragDropText.classList.add('hidden');
+                analyzeButton.classList.remove('hidden');
+                analyzeButton.innerText = 'ถ่ายรูป';
+                startCamera();
+                break;
+            case 'upload':
+                placeholderText.innerText = 'อัปโหลดรูปภาพจากเครื่องของคุณ';
+                placeholderIcon.innerText = '☁️';
+                dragDropText.classList.remove('hidden');
+                uploadButton.classList.remove('hidden');
+                break;
+            case 'paste':
+                placeholderText.innerText = 'กด Ctrl+V เพื่อวางรูปภาพ';
+                placeholderIcon.innerText = '📋';
+                dragDropText.classList.add('hidden');
+                break;
         }
-        *, *::before, *::after { box-sizing: border-box; }
-        body { font-family: var(--font-family); background-color: var(--background-color); color: var(--text-color); margin: 0; padding: 20px; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; min-height: 100vh; overflow-y: auto; }
-        
-        body::before {
-            content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-image: url("data:image/svg+xml,%3Csvg width='6' height='6' viewBox='0 0 6 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%239C92AC' fill-opacity='0.1' fill-rule='evenodd'%3E%3Cpath d='M0 0h3v3H0V0zm3 3h3v3H3V3z'/%3E%3C/g%3E%3C/svg%3E");
-            z-index: -1; animation: backgroundPan 60s linear infinite;
+    }
+
+    function resetInputState() {
+        allModeButtons.forEach(btn => btn.classList.remove('active'));
+        [pastedImage, capturedImage, cameraStream, uploadButton, analyzeButton].forEach(el => el.classList.add('hidden'));
+        scannerView.classList.remove('active-camera', 'has-image', 'drag-over');
+        scannerView.querySelector('.placeholder').classList.remove('hidden');
+        analyzeButton.disabled = true;
+        pastedImage.src = ''; 
+        capturedImage.src = '';
+        currentImageFile = null;
+        if (activeStream) {
+            activeStream.getTracks().forEach(track => track.stop());
+            activeStream = null;
         }
-        @keyframes backgroundPan { from { background-position: 0 0; } to { background-position: 600px 600px; } }
+        resultData.classList.add('hidden');
+        analysisLoader.classList.add('hidden');
+        resultPlaceholder.classList.remove('hidden');
+    }
 
-        .app-header {
-            text-align: center; margin-bottom: 40px; padding-top: 20px; width: 100%; max-width: 900px;
+    function startCamera() {
+         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                activeStream = stream;
+                cameraStream.srcObject = stream;
+                scannerView.classList.add('active-camera');
+                analyzeButton.disabled = false;
+            })
+            .catch(err => {
+                showError("ไม่สามารถเข้าถึงกล้องได้", "โปรดตรวจสอบการอนุญาตในเบราว์เซอร์");
+                setInputMode('upload');
+            });
+    }
+    
+    function processImageForAnalysis(file) {
+        if (!file || !file.type.startsWith('image/')) {
+            showError("ไฟล์ไม่ถูกต้อง", "กรุณาเลือกไฟล์รูปภาพเท่านั้น");
+            return;
         }
-        .app-header h1 {
-            font-size: clamp(2.5rem, 8vw, 4.5rem);
-            font-weight: 700; margin: 0; color: var(--primary-color); letter-spacing: -2px; text-shadow: 0 0 15px rgba(59,130,246,0.4);
+        currentImageFile = file;
+        const imageUrl = URL.createObjectURL(file);
+        pastedImage.src = imageUrl;
+        scannerView.classList.add('has-image');
+        analyzeButton.classList.remove('hidden');
+        analyzeButton.disabled = false;
+        analyzeButton.innerText = 'เริ่มวิเคราะห์';
+    }
+
+    async function startRealAnalysis(imageFile) {
+        analyzeButton.disabled = true;
+        analyzeButton.innerHTML = '<div class="spinner"></div><span>กำลังประมวลผล</span>';
+        resultPlaceholder.classList.add('hidden');
+        resultData.classList.add('hidden');
+        analysisLoader.classList.remove('hidden');
+        const formData = new FormData();
+        formData.append('foodImage', imageFile);
+
+        progressBar.style.width = '25%';
+        loaderStatusText.innerText = 'กำลังส่งภาพไปยัง AI...';
+
+        try {
+            // **สำคัญ: แก้ URL นี้ให้เป็น URL ของ Render ของคุณ**
+            const backendUrl = 'https://cal-track-backend.onrender.com/analyze'; // <-- ใส่ URL ของคุณที่นี่
+            const response = await fetch(backendUrl, {
+                method: 'POST', body: formData,
+            });
+            
+            progressBar.style.width = '75%';
+            loaderStatusText.innerText = 'AI กำลังวิเคราะห์และค้นหาข้อมูล...';
+
+            const result = await response.json();
+
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            progressBar.style.width = '100%';
+            
+            if (response.ok && result.success) {
+                loaderStatusText.innerText = `ตรวจพบ: ${result.name}!`;
+                await new Promise(resolve => setTimeout(resolve, 500));
+                displayResults(result);
+            } else {
+                throw new Error(result.message || "ไม่สามารถวิเคราะห์รูปภาพได้");
+            }
+        } catch (error) {
+            console.error("Analysis Error:", error);
+            showError("เกิดข้อผิดพลาด", error.message);
         }
-        .app-header p { font-size: clamp(1rem, 2.5vw, 1.2rem); color: var(--text-color-muted); margin-top: 10px; font-weight: 400; letter-spacing: 0.5px; }
+    }
+    
+    function displayResults(data) {
+        analysisLoader.classList.add('hidden');
+        document.getElementById('foodImage').src = data.imageSrc;
+        document.getElementById('foodName').innerText = data.name;
+        document.getElementById('calories').innerText = data.calories;
+        document.getElementById('protein').innerText = data.protein;
+        document.getElementById('carbs').innerText = data.carbs;
+        document.getElementById('fat').innerText = data.fat;
+        resultData.classList.remove('hidden');
+    }
 
-        .main-container { width: 100%; max-width: 900px; display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
-        .panel { background-color: var(--panel-color); border-radius: 16px; padding: 30px; border: 1px solid var(--border-color); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
-        .input-panel h2 { margin-top: 0; font-size: 20px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
-        
-        .input-mode-selector { display: flex; gap: 10px; margin-bottom: 20px; }
-        .mode-button {
-            flex: 1; padding: 10px; background-color: var(--border-color); color: var(--text-color-muted);
-            border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
-            font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    function showError(title, message) {
+        analysisLoader.classList.add('hidden');
+        resultPlaceholder.classList.remove('hidden');
+        alert(`${title}\n${message}`);
+        resetInputState();
+        setInputMode(currentMode || 'upload');
+    }
+
+    // --- EVENT LISTENERS ---
+    allModeButtons.forEach(button => {
+        button.addEventListener('click', () => setInputMode(button.id.replace('mode', '').toLowerCase()));
+    });
+    scannerView.addEventListener('click', () => { if (currentMode === 'upload' && !scannerView.classList.contains('has-image')) { uploadFileInput.click(); } });
+    uploadButton.addEventListener('click', () => uploadFileInput.click());
+    uploadFileInput.addEventListener('change', (event) => { if (event.target.files.length > 0) { processImageForAnalysis(event.target.files[0]); } });
+    
+    analyzeButton.addEventListener('click', () => {
+         if (currentMode === 'capture') {
+            const canvas = document.createElement('canvas');
+            canvas.width = cameraStream.videoWidth; canvas.height = cameraStream.videoHeight;
+            const context = canvas.getContext('2d');
+            context.translate(canvas.width, 0); context.scale(-1, 1);
+            context.drawImage(cameraStream, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(file => {
+                if(file) startRealAnalysis(file)
+            }, 'image/jpeg', 0.95);
+        } else if (currentImageFile) {
+            startRealAnalysis(currentImageFile);
         }
-        .mode-button:hover:not(.active) { background-color: #3f5169; color: var(--text-color); transform: translateY(-2px); }
-        .mode-button.active { background-color: var(--primary-color); color: white; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+    });
 
-        .scanner-container { position: relative; }
-        .scanner-view {
-            width: 100%; aspect-ratio: 4 / 3; background-color: #1a2433; border: 2px dashed var(--border-color);
-            border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: center; align-items: center;
-            position: relative; overflow: hidden; transition: border-color 0.3s, background-color 0.3s, transform 0.3s; cursor: pointer;
-        }
-        .scanner-view:hover { border-color: var(--primary-color); }
-        .scanner-view.drag-over { background-color: rgba(59,130,246,0.1); border-color: var(--primary-color); transform: scale(1.02); }
-        .scanner-view.has-image .placeholder, .scanner-view.active-camera .placeholder { opacity: 0; pointer-events: none; }
-        .scanner-view.error { animation: shake 0.5s ease-in-out; border-color: var(--danger-color); }
-        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-        #pasteError { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); background-color: var(--danger-color); color: white; padding: 5px 10px; border-radius: 6px; font-size: 12px; opacity: 0; visibility: hidden; transition: all 0.3s ease; pointer-events: none; z-index: 10;}
-        #pasteError.visible { opacity: 1; visibility: visible; }
-        
-        #pastedImage, #capturedImage, #cameraStream { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: none; border-radius: 10px; }
-        #cameraStream { transform: scaleX(-1); }
-        .scanner-view.has-image #pastedImage, .scanner-view.has-camera #capturedImage, .scanner-view.active-camera #cameraStream { display: block; }
-        
-        .placeholder { text-align: center; transition: opacity 0.3s; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
-        .placeholder .icon-large { font-size: 64px; color: var(--text-color-muted); margin-bottom: 15px; transition: color 0.3s; }
-        .scanner-view:hover .placeholder .icon-large { color: var(--primary-color); }
-        .placeholder p { color: var(--text-color-muted); margin: 0; font-size: 16px; transition: color 0.3s; }
+    scanAgainButton.addEventListener('click', () => {
+        resetInputState();
+        setInputMode(currentMode);
+    });
+    
+    dropArea.addEventListener('dragover', (e) => { e.preventDefault(); if (currentMode === 'upload') { scannerView.classList.add('drag-over'); } });
+    dropArea.addEventListener('dragleave', (e) => { e.preventDefault(); scannerView.classList.remove('drag-over'); });
+    dropArea.addEventListener('drop', (e) => {
+        e.preventDefault(); scannerView.classList.remove('drag-over');
+        if (currentMode !== 'upload') return;
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) { processImageForAnalysis(files[0]); }
+        else { showError("ไฟล์ไม่ถูกต้อง", "กรุณาวางไฟล์รูปภาพเท่านั้น"); }
+    });
 
-        #uploadFileInput { display: none; }
-        .action-button-group { display: flex; gap: 15px; margin-top: 20px; }
-        .action-button {
-            flex: 1; padding: 15px; font-size: 18px; font-family: var(--font-family); font-weight: 700;
-            border: none; border-radius: 10px; cursor: pointer; display: flex; justify-content: center;
-            align-items: center; gap: 10px; transition: all 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.1); position: relative;
-        }
-        #uploadButton { background-color: var(--border-color); color: var(--text-color); }
-        #uploadButton:hover:not(:disabled) { background-color: #3f5169; transform: translateY(-2px); }
-        #analyzeButton, #detailsButton { background-color: var(--primary-color); color: white; }
-        #analyzeButton:hover:not(:disabled), #detailsButton:hover:not(:disabled) { background-color: var(--button-hover-bg); transform: translateY(-2px); }
-        #scanAgainButton { background-color: transparent; border: 1px solid var(--border-color); color: var(--text-color-muted); }
-        #scanAgainButton:hover:not(:disabled) { background-color: var(--border-color); color: var(--text-color); }
-        
-        .action-button:disabled { background-color: #334155; color: var(--text-color-muted); cursor: not-allowed; opacity: 0.7; transform: none; }
-        .button-icon { transition: transform 0.3s ease; }
-        #uploadButton:hover:not(:disabled) .button-icon { transform: translateY(-3px); }
-
-        .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .result-panel-content { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; height: 100%; }
-        #resultPlaceholder, #resultData, #analysisLoader { width: 100%; }
-        .hidden { display: none !important; }
-        .loader-container { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; text-align: center; }
-        .progress-bar-container { width: 100%; background-color: #1a2433; border-radius: 10px; margin-top: 20px; overflow: hidden; height: 8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); }
-        .progress-bar { width: 0%; height: 100%; background-color: var(--primary-color); border-radius: 10px; transition: width 0.5s ease-out, background-color 0.3s ease; }
-        #loaderStatusText { margin-top: 10px; color: var(--text-color-muted); font-size: 14px; }
-        
-        .food-header { text-align: center; margin-bottom: 25px; }
-        .food-header img { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid var(--panel-color); box-shadow: 0 0 0 1px var(--border-color), 0 4px 12px rgba(0,0,0,0.2); margin-bottom: 15px; }
-        .food-header h2 { margin: 0; font-size: 24px; font-weight: 700; }
-        .health-summary { padding: 12px 15px; border-radius: 8px; margin-bottom: 25px; text-align: center; border-left: 4px solid; background-color: rgba(255,255,255,0.03); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .health-summary.good, .health-summary.warning, .health-summary.danger { /* Placeholder for future use if needed */ }
-        .nutrition-list { list-style: none; padding: 0; margin: 0 0 25px 0; }
-        .nutrition-list li { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border-color); }
-        .nutrition-list li:last-child { border-bottom: none; }
-        .nutrition-list .label { color: var(--text-color-muted); }
-        .nutrition-list .value { font-weight: 700; font-size: 18px; }
-        
-        .modal-backdrop { /* ... */ }
-        @media (max-width: 800px) { .main-container { grid-template-columns: 1fr; } .panel { padding: 20px; } }
-        @media (max-width: 500px) { .details-grid { grid-template-columns: 1fr; } .action-button-group { flex-direction: column; } .mode-button span { display: none; } .mode-button { padding: 12px; } }
-    </style>
-</head>
-<body>
-    <header class="app-header">
-        <h1>Cal Track</h1>
-        <p>AI Powered Nutritional Analysis</p>
-    </header>
-
-    <div class="main-container">
-        <div class="panel input-panel">
-            <h2>อัปโหลดรูปภาพอาหาร</h2>
-            <div class="input-mode-selector">
-                <button id="modeCapture" class="mode-button" title="ถ่ายรูป"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg> <span>ถ่ายรูป</span></button>
-                <button id="modeUpload" class="mode-button active" title="อัปโหลดไฟล์"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> <span>อัปโหลด</span></button>
-                <button id="modePaste" class="mode-button" title="วางจาก Clipboard"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> <span>วางรูป</span></button>
-            </div>
-            <div class="scanner-container" id="dropArea">
-                 <div class="scanner-view" id="scannerView">
-                    <video id="cameraStream" autoplay playsinline></video>
-                    <img id="pastedImage" alt="Pasted image"><img id="capturedImage" alt="Captured image">
-                    <div class="placeholder">
-                        <span class="icon-large" id="placeholderIcon">☁️</span>
-                        <p id="placeholderText">อัปโหลดรูปภาพจากเครื่องของคุณ</p>
-                        <p style="font-size: 13px; color: var(--text-color-muted); margin-top: 5px;" id="dragDropText">หรือลากและวางรูปภาพที่นี่</p>
-                    </div>
-                </div>
-                <div id="pasteError">ข้อมูลไม่ถูกต้อง</div>
-            </div>
-            <input type="file" id="uploadFileInput" accept="image/*">
-            <div class="action-button-group">
-                <button id="uploadButton" class="action-button"><svg class="button-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg><span>เลือกรูปภาพ</span></button>
-                <button id="analyzeButton" class="action-button" disabled>เริ่มวิเคราะห์</button>
-            </div>
-        </div>
-        <div class="panel result-panel">
-            <div class="result-panel-content">
-                <div id="resultPlaceholder"><div class="icon" style="font-size:48px;">📊</div><h3>พร้อมสำหรับการวิเคราะห์ที่แม่นยำ</h3><p>เลือกวิธีอัปโหลดภาพอาหารของคุณ เพื่อให้ AI ของเราวิเคราะห์ข้อมูลโภชนาการเชิงลึก</p></div>
-                <div id="analysisLoader" class="hidden"><div class="loader-container"><h3>กำลังวิเคราะห์...</h3><p id="loaderStatusText">เริ่มต้นกระบวนการ</p><div class="progress-bar-container"><div id="progressBar" class="progress-bar"></div></div></div></div>
-                <div id="resultData" class="hidden">
-                    <div class="food-header"><img id="foodImage" src="" alt="รูปภาพอาหาร"><h2 id="foodName"></h2></div>
-                    <div id="healthSummary" class="health-summary"><p id="summaryText"></p></div>
-                    <ul class="nutrition-list">
-                        <li><span class="label">🔥 พลังงาน</span> <span class="value" id="calories"></span></li>
-                        <li><span class="label">🍗 โปรตีน</span> <span class="value" id="protein"></span></li>
-                        <li><span class="label">🍞 คาร์โบไฮเดรต</span> <span class="value" id="carbs"></span></li>
-                        <li><span class="label">🥑 ไขมัน</span> <span class="value" id="fat"></span></li>
-                    </ul>
-                    <div class="action-button-group">
-                        <button id="scanAgainButton" class="action-button">สแกนรายการใหม่</button>
-                        <button id="detailsButton" class="action-button">ดูข้อมูลเชิงลึก</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div id="detailsModal" class="modal-backdrop">...</div> <script>
-        // --- DOM Elements ---
-        const allModeButtons = document.querySelectorAll('.mode-button');
-        const scannerView = document.getElementById('scannerView');
-        // ... (all other DOM elements are the same as the "Definitive Edition") ...
-        const scanAgainButton = document.getElementById('scanAgainButton');
-
-        let currentImageFile = null;
-        let activeStream = null;
-        let currentMode = '';
-
-        // --- CORE FUNCTIONS ---
-        function setInputMode(mode) {
-            if (currentMode === mode && mode !== 'capture') return;
-            currentMode = mode;
-            resetInputState();
-            const activeBtn = document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
-            activeBtn.classList.add('active');
-            // ... (rest of setInputMode is the same as the "Definitive Edition") ...
-        }
-
-        function resetInputState() {
-            // ... (same as the "Definitive Edition") ...
-        }
-
-        function startCamera() {
-            // ... (same as the "Definitive Edition") ...
-        }
-
-        function processImageForAnalysis(file) {
-            if (!file || !file.type.startsWith('image/')) {
-                showError("กรุณาเลือกไฟล์รูปภาพเท่านั้น");
+    document.addEventListener('paste', (e) => {
+        if (currentMode !== 'paste') return;
+        const items = (e.clipboardData || window.clipboardData).items;
+        for (let item of items) {
+            if (item.type.indexOf('image') !== -1) {
+                e.preventDefault();
+                const imageFile = item.getAsFile();
+                processImageForAnalysis(imageFile);
                 return;
             }
-            currentImageFile = file;
-            const imageUrl = URL.createObjectURL(file);
-            pastedImage.src = imageUrl;
-            scannerView.classList.add('has-image');
-            analyzeButton.classList.remove('hidden');
-            analyzeButton.disabled = false;
-            analyzeButton.innerText = 'เริ่มวิเคราะห์';
         }
-
-        async function startRealAnalysis(imageFile) {
-            analyzeButton.disabled = true;
-            analyzeButton.innerHTML = '<div class="spinner"></div><span>กำลังประมวลผล</span>';
-            resultPlaceholder.classList.add('hidden');
-            resultData.classList.add('hidden');
-            analysisLoader.classList.remove('hidden');
-            const formData = new FormData();
-            formData.append('foodImage', imageFile);
-
-            progressBar.style.width = '25%';
-            loaderStatusText.innerText = 'กำลังอัปโหลดและส่งภาพไปยัง AI...';
-
-            try {
-                const response = await fetch('http://localhost:3000/analyze', {
-                    method: 'POST', body: formData,
-                });
-                
-                progressBar.style.width = '75%';
-                loaderStatusText.innerText = 'AI กำลังวิเคราะห์และค้นหาข้อมูล...';
-
-                const result = await response.json();
-
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate final processing
-                
-                progressBar.style.width = '100%';
-                
-                if (result.success) {
-                    loaderStatusText.innerText = `ตรวจพบ: ${result.name}!`;
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    displayResults(result);
-                } else {
-                    showError(result.message || "ไม่สามารถวิเคราะห์รูปภาพได้");
-                }
-            } catch (error) {
-                showError("ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์วิเคราะห์ได้");
-            }
-        }
-        
-        function displayResults(data) {
-            analysisLoader.classList.add('hidden');
-            document.getElementById('foodImage').src = data.imageSrc;
-            document.getElementById('foodName').innerText = data.name;
-            document.getElementById('calories').innerText = `${data.calories} kcal`;
-            document.getElementById('protein').innerText = `${data.protein} g`;
-            document.getElementById('carbs').innerText = `${data.carbs} g`;
-            document.getElementById('fat').innerText = `${data.fat} g`;
-            
-            // This part is simplified as modal is not shown for brevity
-            // detailsButton.onclick = () => openDetailsModal(data); 
-
-            resultData.classList.remove('hidden');
-        }
-
-        function showError(message) {
-            analysisLoader.classList.add('hidden');
-            resultPlaceholder.classList.remove('hidden');
-            alert(`เกิดข้อผิดพลาด: ${message}`);
-            resetInputState();
-            setInputMode(currentMode || 'upload');
-        }
-
-        // --- EVENT LISTENERS ---
-        allModeButtons.forEach(button => {
-            button.addEventListener('click', () => setInputMode(button.id.replace('mode', '').toLowerCase()));
-        });
-        scannerView.addEventListener('click', () => { if (currentMode === 'upload' && !scannerView.classList.contains('has-image')) { uploadFileInput.click(); } });
-        uploadButton.addEventListener('click', () => uploadFileInput.click());
-        uploadFileInput.addEventListener('change', (event) => { if (event.target.files.length > 0) { processImageForAnalysis(event.target.files[0]); } });
-        
-        analyzeButton.addEventListener('click', () => {
-             if (currentMode === 'capture') {
-                const canvas = document.createElement('canvas');
-                canvas.width = cameraStream.videoWidth; canvas.height = cameraStream.videoHeight;
-                const context = canvas.getContext('2d');
-                context.translate(canvas.width, 0); context.scale(-1, 1);
-                context.drawImage(cameraStream, 0, 0, canvas.width, canvas.height);
-                canvas.toBlob(file => startRealAnalysis(file), 'image/jpeg');
-            } else if (currentImageFile) {
-                startRealAnalysis(currentImageFile);
-            }
-        });
-
-        scanAgainButton.addEventListener('click', () => {
-            resetInputState();
-            setInputMode(currentMode); // Return to the last active mode
-        });
-        
-        dropArea.addEventListener('dragover', (e) => { e.preventDefault(); if (currentMode === 'upload') { dropArea.classList.add('drag-over'); } });
-        dropArea.addEventListener('dragleave', (e) => { e.preventDefault(); dropArea.classList.remove('drag-over'); });
-        dropArea.addEventListener('drop', (e) => {
-            e.preventDefault(); dropArea.classList.remove('drag-over');
-            if (currentMode !== 'upload') return;
-            const files = e.dataTransfer.files;
-            if (files.length > 0 && files[0].type.startsWith('image/')) { processImageForAnalysis(files[0]); }
-            else { showError("กรุณาวางไฟล์รูปภาพเท่านั้น"); }
-        });
-
-        document.addEventListener('paste', (e) => {
-            if (currentMode !== 'paste') return;
-            const items = (e.clipboardData || window.clipboardData).items;
-            for (let item of items) {
-                if (item.type.indexOf('image') !== -1) {
-                    e.preventDefault();
-                    const imageFile = item.getAsFile();
-                    processImageForAnalysis(imageFile); // Show preview first
-                    // Unlike previous versions, we wait for the user to click "Analyze"
-                    return;
-                }
-            }
-             showError("ไม่พบข้อมูลรูปภาพใน Clipboard"); e.preventDefault();
-        });
-
-        // Modal listeners are unchanged
-        // closeModalButton.addEventListener('click', closeDetailsModal);
-        // detailsModal.addEventListener('click', (e) => { if (e.target === detailsModal) { closeDetailsModal(); } });
-
-        // Initial setup
-        setInputMode('upload');
-    </script>
-</body>
-</html>
+         showError("ข้อมูลไม่ถูกต้อง", "ไม่พบข้อมูลรูปภาพใน Clipboard"); e.preventDefault();
+    });
+    
+    // Initial setup
+    setInputMode('upload');
+</script>
