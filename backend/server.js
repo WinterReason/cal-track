@@ -115,6 +115,13 @@ app.post('/analyze', upload.single('foodImage'), async (req, res) => {
     // ... โค้ดวิเคราะห์รูปภาพของคุณ ...
 });
 
+// --- 4. เปิดใช้งาน CORS (Cross-Origin Resource Sharing) ---
+// อนุญาตให้ Frontend ที่อยู่บน Vercel สามารถเรียกใช้ Backend นี้ได้
+const corsOptions = {
+  origin: 'https://cal-track-lehduke-winterreasons-projects.vercel.app' // <-- ✨ สำคัญ: ใส่ URL ของ Vercel ของคุณที่นี่
+};
+app.use(cors(corsOptions));
+
 // --- 6. สั่งให้เซิร์ฟเวอร์เริ่มทำงาน ---
 app.listen(PORT, () => {
     console.log(`✅ Backend Server พร้อมทำงานที่ http://localhost:${PORT}`);
