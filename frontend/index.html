@@ -4,11 +4,10 @@
     const scannerView = document.getElementById('scannerView');
     const cameraStream = document.getElementById('cameraStream');
     const pastedImage = document.getElementById('pastedImage');
-    const capturedImage = document.getElementById('capturedImage');
+    const capturedImage = document.getElementById('capturedImage'); // อาจไม่ถูกใช้โดยตรงในเวอร์ชันนี้ แต่เก็บไว้เผื่ออนาคต
     const placeholderText = document.getElementById('placeholderText');
     const placeholderIcon = document.getElementById('placeholderIcon');
     const dragDropText = document.getElementById('dragDropText');
-    const pasteError = document.getElementById('pasteError');
     const uploadFileInput = document.getElementById('uploadFileInput');
     const uploadButton = document.getElementById('uploadButton');
     const analyzeButton = document.getElementById('analyzeButton');
@@ -17,28 +16,45 @@
     const resultData = document.getElementById('resultData');
     const progressBar = document.getElementById('progressBar');
     const loaderStatusText = document.getElementById('loaderStatusText');
-    const detailsButton = document.getElementById('detailsButton');
     const scanAgainButton = document.getElementById('scanAgainButton');
-    const detailsModal = document.getElementById('detailsModal');
-    const closeModalButton = document.getElementById('closeModalButton');
+    const detailsButton = document.getElementById('detailsButton'); // ยังไม่มี Modal แต่เก็บไว้
     const dropArea = document.getElementById('dropArea');
-    
+    const pasteError = document.getElementById('pasteError'); // สำหรับแสดงข้อผิดพลาดการ Paste
+
     let currentImageFile = null;
-    let activeStream = null;
-    let currentMode = '';
+    let activeStream = null; // สำหรับเก็บ stream ของกล้อง
+    let currentMode = ''; // เก็บโหมดปัจจุบัน
+    let isAnalyzing = false; // สถานะเพื่อป้องกันการกด Analyze ซ้ำ
+
+    // ** สำคัญ: แก้ URL นี้ให้เป็น URL ของ Backend Render ของคุณ **
+    const BACKEND_API_URL = 'https://cal-track-backend.onrender.com/analyze'; // <-- ใส่ URL ของคุณที่นี่
 
     // --- CORE FUNCTIONS ---
+
+    // ฟังก์ชันหลักในการเปลี่ยนโหมด Input
     function setInputMode(mode) {
-        if (currentMode === mode) return;
-        currentMode = mode;
-        resetInputState();
-        const activeBtn = document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
-        activeBtn.classList.add('active');
+        if (isAnalyzing) return; // ไม่อนุญาตให้เปลี่ยนโหมดขณะกำลังวิเคราะห์
+        if (currentMode === mode) return; // ไม่ทำงานซ้ำถ้าโหมดเดิม
+
+        currentMode = mode; // อัปเดตโหมดปัจจุบัน
+        
+        // 1. รีเซ็ต UI และสถานะทั้งหมด
+        resetUIAndState();
+
+        // 2. ตั้งค่าปุ่มโหมด "Active"
+        allModeButtons.forEach(btn => btn.classList.remove('active'));
+        const activeBtnElement = document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`);
+        if (activeBtnElement) {
+            activeBtnElement.classList.add('active');
+        }
+
+        // 3. ปรับ UI ตามโหมดที่เลือก
         switch (mode) {
             case 'capture':
                 placeholderText.innerText = 'กำลังเปิดกล้อง...';
                 placeholderIcon.innerText = '📸';
                 dragDropText.classList.add('hidden');
+                uploadButton.classList.add('hidden'); // ซ่อนปุ่มอัปโหลด
                 analyzeButton.classList.remove('hidden');
                 analyzeButton.innerText = 'ถ่ายรูป';
                 startCamera();
@@ -47,49 +63,69 @@
                 placeholderText.innerText = 'อัปโหลดรูปภาพจากเครื่องของคุณ';
                 placeholderIcon.innerText = '☁️';
                 dragDropText.classList.remove('hidden');
-                uploadButton.classList.remove('hidden');
+                uploadButton.classList.remove('hidden'); // แสดงปุ่มอัปโหลด
+                analyzeButton.classList.add('hidden'); // ซ่อนปุ่มวิเคราะห์ถ้ายังไม่มีรูป
                 break;
             case 'paste':
                 placeholderText.innerText = 'กด Ctrl+V เพื่อวางรูปภาพ';
                 placeholderIcon.innerText = '📋';
                 dragDropText.classList.add('hidden');
+                uploadButton.classList.add('hidden'); // ซ่อนปุ่มอัปโหลด
+                analyzeButton.classList.add('hidden'); // ซ่อนปุ่มวิเคราะห์ถ้ายังไม่มีรูป
                 break;
         }
     }
 
-    function resetInputState() {
-        allModeButtons.forEach(btn => btn.classList.remove('active'));
-        [pastedImage, capturedImage, cameraStream, uploadButton, analyzeButton].forEach(el => el.classList.add('hidden'));
-        scannerView.classList.remove('active-camera', 'has-image', 'drag-over');
+    // ฟังก์ชันรีเซ็ต UI และสถานะทั้งหมด
+    function resetUIAndState() {
+        // ซ่อนทุกอย่างที่เกี่ยวข้องกับ Input และ Result
+        [pastedImage, cameraStream, uploadButton, analyzeButton].forEach(el => el.classList.add('hidden'));
+        scannerView.classList.remove('active-camera', 'has-image', 'drag-over', 'error');
         scannerView.querySelector('.placeholder').classList.remove('hidden');
+        
+        // รีเซ็ตสถานะการวิเคราะห์
+        isAnalyzing = false;
         analyzeButton.disabled = true;
-        pastedImage.src = ''; 
-        capturedImage.src = '';
+        analyzeButton.innerHTML = 'เริ่มวิเคราะห์'; // รีเซ็ตข้อความปุ่ม
+
+        // รีเซ็ตรูปภาพและไฟล์
+        pastedImage.src = '';
         currentImageFile = null;
+
+        // หยุดกล้องถ้าเปิดอยู่
         if (activeStream) {
             activeStream.getTracks().forEach(track => track.stop());
             activeStream = null;
         }
+
+        // รีเซ็ตส่วนแสดงผลลัพธ์
         resultData.classList.add('hidden');
         analysisLoader.classList.add('hidden');
-        resultPlaceholder.classList.remove('hidden');
+        resultPlaceholder.classList.remove('hidden'); // แสดง placeholder ผลลัพธ์เริ่มต้น
+        
+        // ซ่อน error paste ถ้ามี
+        pasteError.classList.remove('visible');
     }
 
+    // เปิดกล้อง
     function startCamera() {
-         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
             .then(stream => {
                 activeStream = stream;
                 cameraStream.srcObject = stream;
+                cameraStream.classList.remove('hidden'); // แสดง video stream
                 scannerView.classList.add('active-camera');
-                analyzeButton.disabled = false;
+                analyzeButton.disabled = false; // เปิดใช้งานปุ่ม "ถ่ายรูป"
             })
             .catch(err => {
-                showError("ไม่สามารถเข้าถึงกล้องได้", "โปรดตรวจสอบการอนุญาตในเบราว์เซอร์");
-                setInputMode('upload');
+                console.error("Error accessing camera:", err);
+                showError("ไม่สามารถเข้าถึงกล้องได้", "โปรดตรวจสอบการอนุญาตในเบราว์เซอร์ของคุณ");
+                setInputMode('upload'); // เปลี่ยนกลับเป็นโหมดอัปโหลด
             });
     }
     
-    function processImageForAnalysis(file) {
+    // แสดงรูปภาพที่เลือก/วาง/ถ่าย สำหรับ Preview
+    function previewImage(file) {
         if (!file || !file.type.startsWith('image/')) {
             showError("ไฟล์ไม่ถูกต้อง", "กรุณาเลือกไฟล์รูปภาพเท่านั้น");
             return;
@@ -97,42 +133,62 @@
         currentImageFile = file;
         const imageUrl = URL.createObjectURL(file);
         pastedImage.src = imageUrl;
+        pastedImage.classList.remove('hidden'); // แสดงรูปภาพ preview
         scannerView.classList.add('has-image');
+        scannerView.querySelector('.placeholder').classList.add('hidden'); // ซ่อน placeholder
+        
+        // เตรียมปุ่มวิเคราะห์
         analyzeButton.classList.remove('hidden');
         analyzeButton.disabled = false;
         analyzeButton.innerText = 'เริ่มวิเคราะห์';
+
+        // หยุดกล้องถ้ามาจากโหมด capture
+        if (currentMode === 'capture' && activeStream) {
+            activeStream.getTracks().forEach(track => track.stop());
+            activeStream = null;
+            cameraStream.srcObject = null;
+            scannerView.classList.remove('active-camera');
+        }
     }
 
+    // เริ่มต้นกระบวนการวิเคราะห์จริง
     async function startRealAnalysis(imageFile) {
+        if (!imageFile || isAnalyzing) return; // ป้องกันการวิเคราะห์ซ้ำ
+        isAnalyzing = true; // ตั้งสถานะว่ากำลังวิเคราะห์
+
         analyzeButton.disabled = true;
         analyzeButton.innerHTML = '<div class="spinner"></div><span>กำลังประมวลผล</span>';
+        
         resultPlaceholder.classList.add('hidden');
         resultData.classList.add('hidden');
         analysisLoader.classList.remove('hidden');
+
+        progressBar.style.width = '0%';
+        loaderStatusText.innerText = 'กำลังส่งภาพไปยัง AI...';
+
         const formData = new FormData();
         formData.append('foodImage', imageFile);
 
-        progressBar.style.width = '25%';
-        loaderStatusText.innerText = 'กำลังส่งภาพไปยัง AI...';
-
         try {
-            // **สำคัญ: แก้ URL นี้ให้เป็น URL ของ Render ของคุณ**
-            const backendUrl = 'https://cal-track-backend.onrender.com/analyze'; // <-- ใส่ URL ของคุณที่นี่
-            const response = await fetch(backendUrl, {
+            const response = await fetch(BACKEND_API_URL, {
                 method: 'POST', body: formData,
             });
             
-            progressBar.style.width = '75%';
+            progressBar.style.width = '50%';
             loaderStatusText.innerText = 'AI กำลังวิเคราะห์และค้นหาข้อมูล...';
 
             const result = await response.json();
 
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // ตรวจสอบ HTTP status code ด้วย
+            if (!response.ok) {
+                throw new Error(result.message || `Backend Error: ${response.status}`);
+            }
+            
             progressBar.style.width = '100%';
             
-            if (response.ok && result.success) {
+            if (result.success) {
                 loaderStatusText.innerText = `ตรวจพบ: ${result.name}!`;
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 500)); // หน่วงเวลาเล็กน้อยเพื่อความสวยงาม
                 displayResults(result);
             } else {
                 throw new Error(result.message || "ไม่สามารถวิเคราะห์รูปภาพได้");
@@ -140,9 +196,12 @@
         } catch (error) {
             console.error("Analysis Error:", error);
             showError("เกิดข้อผิดพลาด", error.message);
+        } finally {
+            isAnalyzing = false; // รีเซ็ตสถานะการวิเคราะห์
         }
     }
     
+    // แสดงผลลัพธ์บน UI
     function displayResults(data) {
         analysisLoader.classList.add('hidden');
         document.getElementById('foodImage').src = data.imageSrc;
@@ -151,67 +210,119 @@
         document.getElementById('protein').innerText = data.protein;
         document.getElementById('carbs').innerText = data.carbs;
         document.getElementById('fat').innerText = data.fat;
+        
+        // (ส่วนนี้สำหรับ Modal ถ้ามีในอนาคต)
+        // detailsButton.onclick = () => openDetailsModal(data); 
+
         resultData.classList.remove('hidden');
     }
 
+    // แสดงข้อความ Error ที่ด้านล่าง scannerView (สำหรับ paste error)
+    function showPasteError(message) {
+        pasteError.innerText = message;
+        pasteError.classList.add('visible');
+        setTimeout(() => {
+            pasteError.classList.remove('visible');
+        }, 3000);
+    }
+
+    // แสดงข้อความ Error แบบ Alert
     function showError(title, message) {
         analysisLoader.classList.add('hidden');
         resultPlaceholder.classList.remove('hidden');
         alert(`${title}\n${message}`);
-        resetInputState();
+        // รีเซ็ตสถานะทั้งหมดเมื่อเกิด Error ร้ายแรง
+        resetUIAndState();
         setInputMode(currentMode || 'upload');
     }
 
     // --- EVENT LISTENERS ---
+
+    // จัดการการเปลี่ยนโหมด
     allModeButtons.forEach(button => {
         button.addEventListener('click', () => setInputMode(button.id.replace('mode', '').toLowerCase()));
     });
-    scannerView.addEventListener('click', () => { if (currentMode === 'upload' && !scannerView.classList.contains('has-image')) { uploadFileInput.click(); } });
-    uploadButton.addEventListener('click', () => uploadFileInput.click());
-    uploadFileInput.addEventListener('change', (event) => { if (event.target.files.length > 0) { processImageForAnalysis(event.target.files[0]); } });
+
+    // คลิกที่ Scanner View เพื่อเปิด File Explorer (เฉพาะโหมดอัปโหลด)
+    scannerView.addEventListener('click', () => { 
+        if (currentMode === 'upload' && !scannerView.classList.contains('has-image') && !isAnalyzing) { 
+            uploadFileInput.click(); 
+        } 
+    });
+
+    // ปุ่ม "เลือกรูปภาพ"
+    uploadButton.addEventListener('click', () => { 
+        if (!isAnalyzing) uploadFileInput.click(); 
+    });
+
+    // เมื่อเลือกไฟล์จาก File Explorer
+    uploadFileInput.addEventListener('change', (event) => { 
+        if (event.target.files.length > 0) { 
+            previewImage(event.target.files[0]); 
+        } 
+    });
     
+    // ปุ่ม "เริ่มวิเคราะห์" หรือ "ถ่ายรูป"
     analyzeButton.addEventListener('click', () => {
-         if (currentMode === 'capture') {
+        if (isAnalyzing) return; // ป้องกันการกดซ้ำขณะวิเคราะห์
+        if (currentMode === 'capture') {
             const canvas = document.createElement('canvas');
-            canvas.width = cameraStream.videoWidth; canvas.height = cameraStream.videoHeight;
+            canvas.width = cameraStream.videoWidth; 
+            canvas.height = cameraStream.videoHeight;
             const context = canvas.getContext('2d');
-            context.translate(canvas.width, 0); context.scale(-1, 1);
+            
+            // Mirror the camera image
+            context.translate(canvas.width, 0); 
+            context.scale(-1, 1);
+            
             context.drawImage(cameraStream, 0, 0, canvas.width, canvas.height);
             canvas.toBlob(file => {
                 if(file) startRealAnalysis(file)
-            }, 'image/jpeg', 0.95);
+            }, 'image/jpeg', 0.95); // บีบอัดเป็น JPEG คุณภาพ 95%
         } else if (currentImageFile) {
             startRealAnalysis(currentImageFile);
         }
     });
 
+    // ปุ่ม "สแกนรายการใหม่"
     scanAgainButton.addEventListener('click', () => {
-        resetInputState();
-        setInputMode(currentMode);
+        if (isAnalyzing) return;
+        resetUIAndState();
+        setInputMode(currentMode); // กลับไปโหมดเดิม
     });
     
-    dropArea.addEventListener('dragover', (e) => { e.preventDefault(); if (currentMode === 'upload') { scannerView.classList.add('drag-over'); } });
+    // Drag & Drop
+    dropArea.addEventListener('dragover', (e) => { e.preventDefault(); if (currentMode === 'upload' && !isAnalyzing) { scannerView.classList.add('drag-over'); } });
     dropArea.addEventListener('dragleave', (e) => { e.preventDefault(); scannerView.classList.remove('drag-over'); });
     dropArea.addEventListener('drop', (e) => {
         e.preventDefault(); scannerView.classList.remove('drag-over');
-        if (currentMode !== 'upload') return;
+        if (currentMode !== 'upload' || isAnalyzing) return;
         const files = e.dataTransfer.files;
-        if (files.length > 0 && files[0].type.startsWith('image/')) { processImageForAnalysis(files[0]); }
-        else { showError("ไฟล์ไม่ถูกต้อง", "กรุณาวางไฟล์รูปภาพเท่านั้น"); }
+        if (files.length > 0 && files[0].type.startsWith('image/')) { previewImage(files[0]); }
+        else { showPasteError("กรุณาวางไฟล์รูปภาพเท่านั้น"); } // ใช้ showPasteError สำหรับ Drag/Drop
     });
 
+    // Paste จาก Clipboard
     document.addEventListener('paste', (e) => {
-        if (currentMode !== 'paste') return;
+        if (currentMode !== 'paste' || isAnalyzing) return;
         const items = (e.clipboardData || window.clipboardData).items;
         for (let item of items) {
             if (item.type.indexOf('image') !== -1) {
                 e.preventDefault();
                 const imageFile = item.getAsFile();
-                processImageForAnalysis(imageFile);
+                if (imageFile) {
+                    previewImage(imageFile); // แสดงรูปภาพที่วาง
+                    analyzeButton.classList.remove('hidden'); // แสดงปุ่มวิเคราะห์
+                    analyzeButton.disabled = false;
+                    analyzeButton.innerText = 'เริ่มวิเคราะห์';
+                } else {
+                    showPasteError("ไม่พบข้อมูลรูปภาพใน Clipboard");
+                }
                 return;
             }
         }
-         showError("ข้อมูลไม่ถูกต้อง", "ไม่พบข้อมูลรูปภาพใน Clipboard"); e.preventDefault();
+        showPasteError("ไม่พบข้อมูลรูปภาพใน Clipboard"); // ใช้ showPasteError สำหรับ Paste
+        e.preventDefault();
     });
     
     // Initial setup
